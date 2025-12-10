@@ -1,0 +1,162 @@
+import { useEffect, useState } from 'react';
+import { Download, FileCode, Copy, Check } from 'lucide-react';
+import { supabase } from '../lib/supabase';
+import { YaraRule } from '../types';
+
+export default function YaraRulesViewer() {
+  const [rules, setRules] = useState<YaraRule[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadRules();
+  }, []);
+
+  async function loadRules() {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('yara_rules')
+        .select('*, alerts(*)')
+        .order('generated_at', { ascending: false })
+        .limit(100);
+
+      if (error) throw error;
+      setRules(data || []);
+    } catch (error) {
+      console.error('Error loading YARA rules:', error);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const filteredRules = rules.filter(
+    (rule) =>
+      rule.rule_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      rule.description?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  function downloadRule(rule: YaraRule) {
+    const blob = new Blob([rule.rule_content], { type: 'text/plain' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${rule.rule_name}.yar`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+  }
+
+  function downloadAllRules() {
+    const allRules = filteredRules.map((r) => r.rule_content).join('\n\n');
+    const blob = new Blob([allRules], { type: 'text/plain' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `all_yara_rules_${new Date().toISOString().split('T')[0]}.yar`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+  }
+
+  async function copyToClipboard(rule: YaraRule) {
+    await navigator.clipboard.writeText(rule.rule_content);
+    setCopiedId(rule.id);
+    setTimeout(() => setCopiedId(null), 2000);
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+        <input
+          type="text"
+          placeholder="Search YARA rules..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="flex-1 px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+        />
+        <button
+          onClick={downloadAllRules}
+          disabled={filteredRules.length === 0}
+          className="flex items-center space-x-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+        >
+          <Download className="h-4 w-4" />
+          <span>Download All ({filteredRules.length})</span>
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-12">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-cyan-500 border-t-transparent"></div>
+          <p className="mt-4 text-slate-400">Loading YARA rules...</p>
+        </div>
+      ) : filteredRules.length === 0 ? (
+        <div className="text-center py-12">
+          <FileCode className="h-12 w-12 text-slate-600 mx-auto mb-4" />
+          <p className="text-slate-400">No YARA rules found</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {filteredRules.map((rule) => (
+            <div
+              key={rule.id}
+              className="bg-slate-900/50 border border-slate-700 rounded-lg overflow-hidden hover:border-slate-600 transition-colors"
+            >
+              <div className="p-6">
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex-1">
+                    <h3 className="text-lg font-semibold text-white mb-2">{rule.rule_name}</h3>
+                    <p className="text-slate-400 text-sm mb-3">{rule.description}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {rule.tags?.map((tag) => (
+                        <span
+                          key={tag}
+                          className="px-2 py-1 text-xs font-medium bg-slate-700 text-slate-300 rounded"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-2 ml-4">
+                    <button
+                      onClick={() => copyToClipboard(rule)}
+                      className="p-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors"
+                      title="Copy to clipboard"
+                    >
+                      {copiedId === rule.id ? (
+                        <Check className="h-4 w-4 text-green-400" />
+                      ) : (
+                        <Copy className="h-4 w-4" />
+                      )}
+                    </button>
+                    <button
+                      onClick={() => downloadRule(rule)}
+                      className="p-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg transition-colors"
+                      title="Download rule"
+                    >
+                      <Download className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="bg-slate-950 border border-slate-700 rounded-lg p-4 overflow-x-auto">
+                  <pre className="text-sm text-slate-300 font-mono whitespace-pre">
+                    {rule.rule_content}
+                  </pre>
+                </div>
+              </div>
+
+              <div className="px-6 py-3 bg-slate-800/50 border-t border-slate-700 text-xs text-slate-400">
+                Generated: {new Date(rule.generated_at).toLocaleString()}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
