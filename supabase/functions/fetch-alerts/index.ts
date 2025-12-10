@@ -104,11 +104,18 @@ Deno.serve(async (req: Request) => {
 async function fetchNISTAlerts(source: AlertSource) {
   const now = new Date();
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const startDate = sevenDaysAgo.toISOString().split('T')[0];
-  const endDate = now.toISOString().split('T')[0];
+  const startDate = sevenDaysAgo.toISOString().replace('Z', '');
+  const endDate = now.toISOString().replace('Z', '');
 
   const url = `${source.url}?pubStartDate=${startDate}&pubEndDate=${endDate}`;
-  const response = await fetch(url);
+
+  const headers: Record<string, string> = {};
+  const apiKey = Deno.env.get('NIST_API_KEY');
+  if (apiKey) {
+    headers['apiKey'] = apiKey;
+  }
+
+  const response = await fetch(url, { headers });
   const data = await response.json();
 
   const alerts = [];
@@ -116,7 +123,7 @@ async function fetchNISTAlerts(source: AlertSource) {
     for (const vuln of data.vulnerabilities.slice(0, 50)) {
       const cve = vuln.cve;
       const description = cve.descriptions?.find((d: { lang: string }) => d.lang === 'en')?.value || 'No description';
-      
+
       let severity = 'info';
       const cvssMetrics = cve.metrics?.cvssMetricV31?.[0] || cve.metrics?.cvssMetricV2?.[0];
       if (cvssMetrics) {
