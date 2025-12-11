@@ -1,29 +1,36 @@
 import { useEffect, useState } from 'react';
 import { Download, FileCode, Copy, Check } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { api } from '../services/api';
 import { YaraRule } from '../types';
+import Pagination from './common/Pagination';
 
-export default function YaraRulesViewer() {
+interface YaraRulesViewerProps {
+  severity?: string;
+}
+
+export default function YaraRulesViewer({ severity }: YaraRulesViewerProps) {
   const [rules, setRules] = useState<YaraRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(50);
+  const [totalRules, setTotalRules] = useState(0);
+
+  useEffect(() => {
+    setPage(0);
+  }, [severity]);
 
   useEffect(() => {
     loadRules();
-  }, []);
+  }, [severity, page, pageSize]);
 
   async function loadRules() {
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('yara_rules')
-        .select('*, alerts(*)')
-        .order('generated_at', { ascending: false })
-        .limit(100);
-
-      if (error) throw error;
-      setRules(data || []);
+      const response = await api.getYaraRules(severity, page, pageSize);
+      setRules(response.data || []);
+      setTotalRules(response.total || 0);
     } catch (error) {
       console.error('Error loading YARA rules:', error);
     } finally {
@@ -31,6 +38,7 @@ export default function YaraRulesViewer() {
     }
   }
 
+  // Note: Filtering is restricted to the current page's data
   const filteredRules = rules.filter(
     (rule) =>
       rule.rule_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -55,7 +63,7 @@ export default function YaraRulesViewer() {
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `all_yara_rules_${new Date().toISOString().split('T')[0]}.yar`;
+    a.download = `yara_rules_page_${page + 1}.yar`;
     document.body.appendChild(a);
     a.click();
     window.URL.revokeObjectURL(url);
@@ -73,7 +81,7 @@ export default function YaraRulesViewer() {
       <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
         <input
           type="text"
-          placeholder="Search YARA rules..."
+          placeholder="Search rules on this page..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="flex-1 px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500"
@@ -84,7 +92,7 @@ export default function YaraRulesViewer() {
           className="flex items-center space-x-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
         >
           <Download className="h-4 w-4" />
-          <span>Download All ({filteredRules.length})</span>
+          <span>Download Page</span>
         </button>
       </div>
 
@@ -120,6 +128,21 @@ export default function YaraRulesViewer() {
                         </span>
                       ))}
                     </div>
+
+                    {((rule.mitre_ids?.length || 0) > 0 || (rule.mitre_tactics?.length || 0) > 0) && (
+                      <div className="flex flex-wrap gap-2 mt-3">
+                        {rule.mitre_tactics?.slice(0, 3).map(tactic => (
+                          <span key={tactic} className="px-2 py-0.5 text-[10px] font-medium bg-purple-500/20 text-purple-300 border border-purple-500/30 rounded">
+                            {tactic}
+                          </span>
+                        ))}
+                        {rule.mitre_ids?.slice(0, 5).map(id => (
+                          <span key={id} className="px-2 py-0.5 text-[10px] font-medium bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded font-mono">
+                            {id}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center space-x-2 ml-4">
                     <button
@@ -155,6 +178,14 @@ export default function YaraRulesViewer() {
               </div>
             </div>
           ))}
+
+          <Pagination
+            currentPage={page}
+            totalItems={totalRules}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+          />
         </div>
       )}
     </div>

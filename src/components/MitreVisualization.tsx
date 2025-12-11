@@ -1,38 +1,43 @@
 import { useEffect, useState } from 'react';
 import { Target, ExternalLink } from 'lucide-react';
-import { supabase } from '../lib/supabase';
-import { MitreAttackTechnique, AlertMitreMapping } from '../types';
+import { api } from '../services/api';
+import { MitreAttackTechnique } from '../types';
+import Pagination from './common/Pagination';
 
 interface TechniqueWithMappings extends MitreAttackTechnique {
   mappings_count: number;
   avg_confidence: number;
 }
 
-export default function MitreVisualization() {
+interface MitreVisualizationProps {
+  severity?: string;
+}
+
+export default function MitreVisualization({ severity }: MitreVisualizationProps) {
   const [techniques, setTechniques] = useState<TechniqueWithMappings[]>([]);
   const [loading, setLoading] = useState(true);
   const [tacticFilter, setTacticFilter] = useState<string>('all');
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(50);
 
   useEffect(() => {
     loadTechniques();
-  }, []);
+  }, [severity]);
+
+  useEffect(() => {
+    setPage(0); // Reset page when filter changes
+  }, [tacticFilter]);
 
   async function loadTechniques() {
+    // ... same as before
+    // ...
     try {
       setLoading(true);
 
-      const { data: techniquesData, error: techniquesError } = await supabase
-        .from('mitre_attack_techniques')
-        .select('*')
-        .order('technique_id');
-
-      if (techniquesError) throw techniquesError;
-
-      const { data: mappingsData, error: mappingsError } = await supabase
-        .from('alert_mitre_mappings')
-        .select('technique_id, confidence_score');
-
-      if (mappingsError) throw mappingsError;
+      const [techniquesData, mappingsData] = await Promise.all([
+        api.getMitreTechniques(),
+        api.getMitreMappings(severity)
+      ]);
 
       const mappingsByTechnique: Record<string, { count: number; totalConfidence: number }> = {};
       mappingsData?.forEach((mapping) => {
@@ -45,12 +50,13 @@ export default function MitreVisualization() {
 
       const enrichedTechniques = techniquesData?.map((technique) => ({
         ...technique,
-        mappings_count: mappingsByTechnique[technique.id]?.count || 0,
-        avg_confidence: mappingsByTechnique[technique.id]
-          ? mappingsByTechnique[technique.id].totalConfidence / mappingsByTechnique[technique.id].count
+        mappings_count: mappingsByTechnique[technique.technique_id]?.count || 0,
+        avg_confidence: mappingsByTechnique[technique.technique_id]
+          ? mappingsByTechnique[technique.technique_id].totalConfidence / mappingsByTechnique[technique.technique_id].count
           : 0,
       })) || [];
 
+      // Ensure enriched techniques are sorted by mapping countdesc
       enrichedTechniques.sort((a, b) => b.mappings_count - a.mappings_count);
 
       setTechniques(enrichedTechniques);
@@ -68,7 +74,13 @@ export default function MitreVisualization() {
       ? techniques
       : techniques.filter((t) => t.tactic === tacticFilter);
 
+  const paginatedTechniques = filteredTechniques.slice(
+    page * pageSize,
+    (page + 1) * pageSize
+  );
+
   const tacticColors: Record<string, string> = {
+    // ... same colors
     'Initial Access': 'bg-red-500/20 text-red-400 border-red-500/50',
     'Execution': 'bg-orange-500/20 text-orange-400 border-orange-500/50',
     'Persistence': 'bg-yellow-500/20 text-yellow-400 border-yellow-500/50',
@@ -131,7 +143,7 @@ export default function MitreVisualization() {
         </div>
       ) : (
         <div className="space-y-4">
-          {filteredTechniques.map((technique) => (
+          {paginatedTechniques.map((technique) => (
             <div
               key={technique.id}
               className="bg-slate-900/50 border border-slate-700 rounded-lg p-6 hover:border-slate-600 transition-colors"
@@ -140,9 +152,8 @@ export default function MitreVisualization() {
                 <div className="flex-1">
                   <div className="flex items-center space-x-3 mb-2">
                     <span
-                      className={`px-3 py-1 text-xs font-semibold rounded-full border ${
-                        tacticColors[technique.tactic] || 'bg-slate-500/20 text-slate-400 border-slate-500/50'
-                      }`}
+                      className={`px-3 py-1 text-xs font-semibold rounded-full border ${tacticColors[technique.tactic] || 'bg-slate-500/20 text-slate-400 border-slate-500/50'
+                        }`}
                     >
                       {technique.tactic}
                     </span>
@@ -187,7 +198,7 @@ export default function MitreVisualization() {
                     <div
                       className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full transition-all duration-500"
                       style={{
-                        width: `${Math.min((technique.mappings_count / Math.max(...filteredTechniques.map(t => t.mappings_count))) * 100, 100)}%`,
+                        width: `${Math.min((technique.mappings_count / Math.max(...paginatedTechniques.map(t => t.mappings_count))) * 100, 100)}%`,
                       }}
                     />
                   </div>
@@ -195,6 +206,14 @@ export default function MitreVisualization() {
               )}
             </div>
           ))}
+
+          <Pagination
+            currentPage={page}
+            totalItems={filteredTechniques.length}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+          />
         </div>
       )}
     </div>

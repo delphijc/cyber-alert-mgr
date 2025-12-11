@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Shield, AlertTriangle, TrendingUp, FileCode, Target, RefreshCw } from 'lucide-react';
-import { supabase } from '../lib/supabase';
-import { Alert } from '../types';
+import { api } from '../services/api';
 import AlertsMonitor from './AlertsMonitor';
 import TrendChart from './TrendChart';
 import YaraRulesViewer from './YaraRulesViewer';
@@ -16,36 +15,16 @@ export default function Dashboard() {
     mitreTechniques: 0,
   });
   const [loading, setLoading] = useState(false);
+  const [severityFilter, setSeverityFilter] = useState('all');
 
   useEffect(() => {
     loadStats();
-    const subscription = supabase
-      .channel('alerts_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'alerts' }, () => {
-        loadStats();
-      })
-      .subscribe();
-
-    return () => {
-      subscription.unsubscribe();
-    };
   }, []);
 
   async function loadStats() {
     try {
-      const [alertsRes, criticalRes, yaraRes, mitreRes] = await Promise.all([
-        supabase.from('alerts').select('id', { count: 'exact', head: true }),
-        supabase.from('alerts').select('id', { count: 'exact', head: true }).eq('severity', 'critical'),
-        supabase.from('yara_rules').select('id', { count: 'exact', head: true }),
-        supabase.from('mitre_attack_techniques').select('id', { count: 'exact', head: true }),
-      ]);
-
-      setStats({
-        totalAlerts: alertsRes.count || 0,
-        criticalAlerts: criticalRes.count || 0,
-        yaraRules: yaraRes.count || 0,
-        mitreTechniques: mitreRes.count || 0,
-      });
+      const data = await api.getStats();
+      setStats(data);
     } catch (error) {
       console.error('Error loading stats:', error);
     }
@@ -54,26 +33,9 @@ export default function Dashboard() {
   async function triggerFetch() {
     setLoading(true);
     try {
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-      await fetch(`${supabaseUrl}/functions/v1/fetch-alerts`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${anonKey}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      await fetch(`${supabaseUrl}/functions/v1/process-alerts`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${anonKey}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
+      await api.triggerSync();
       await loadStats();
+      window.dispatchEvent(new Event('alerts-updated'));
     } catch (error) {
       console.error('Error triggering fetch:', error);
     } finally {
@@ -84,8 +46,8 @@ export default function Dashboard() {
   const tabs = [
     { id: 'alerts', label: 'Alerts Monitor', icon: AlertTriangle },
     { id: 'trends', label: 'Trends', icon: TrendingUp },
-    { id: 'yara', label: 'YARA Rules', icon: FileCode },
     { id: 'mitre', label: 'MITRE ATT&CK', icon: Target },
+    { id: 'yara', label: 'YARA Rules', icon: FileCode },
   ];
 
   return (
@@ -127,16 +89,16 @@ export default function Dashboard() {
             color="bg-red-500"
           />
           <StatCard
-            title="YARA Rules"
-            value={stats.yaraRules}
-            icon={FileCode}
-            color="bg-purple-500"
-          />
-          <StatCard
             title="MITRE Techniques"
             value={stats.mitreTechniques}
             icon={Target}
             color="bg-green-500"
+          />
+          <StatCard
+            title="YARA Rules"
+            value={stats.yaraRules}
+            icon={FileCode}
+            color="bg-purple-500"
           />
         </div>
 
@@ -149,11 +111,10 @@ export default function Dashboard() {
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id)}
-                    className={`flex items-center space-x-2 px-4 py-4 border-b-2 transition-colors ${
-                      activeTab === tab.id
-                        ? 'border-cyan-400 text-cyan-400'
-                        : 'border-transparent text-slate-400 hover:text-slate-300'
-                    }`}
+                    className={`flex items-center space-x-2 px-4 py-4 border-b-2 transition-colors ${activeTab === tab.id
+                      ? 'border-cyan-400 text-cyan-400'
+                      : 'border-transparent text-slate-400 hover:text-slate-300'
+                      }`}
                   >
                     <Icon className="h-4 w-4" />
                     <span className="font-medium">{tab.label}</span>
@@ -164,10 +125,15 @@ export default function Dashboard() {
           </div>
 
           <div className="p-6">
-            {activeTab === 'alerts' && <AlertsMonitor />}
+            {activeTab === 'alerts' && (
+              <AlertsMonitor
+                severity={severityFilter}
+                onSeverityChange={setSeverityFilter}
+              />
+            )}
             {activeTab === 'trends' && <TrendChart />}
-            {activeTab === 'yara' && <YaraRulesViewer />}
-            {activeTab === 'mitre' && <MitreVisualization />}
+            {activeTab === 'mitre' && <MitreVisualization severity={severityFilter} />}
+            {activeTab === 'yara' && <YaraRulesViewer severity={severityFilter} />}
           </div>
         </div>
       </div>

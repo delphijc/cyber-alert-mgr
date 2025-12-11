@@ -24,6 +24,9 @@ export interface Alert {
   created_at: string;
   updated_at: string;
   alert_sources?: AlertSource;
+  source_name?: string;
+  mitre_ids?: string[];
+  mitre_tactics?: string[];
 }
 
 export interface YaraRule {
@@ -36,6 +39,8 @@ export interface YaraRule {
   generated_at: string;
   created_at: string;
   alerts?: Alert;
+  mitre_ids?: string[];
+  mitre_tactics?: string[];
 }
 
 export interface MitreAttackTechnique {

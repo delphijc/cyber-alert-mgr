@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { api } from '../services/api';
 import { BarChart3 } from 'lucide-react';
 
 interface TrendData {
@@ -22,16 +22,11 @@ export default function TrendChart() {
   async function loadTrendData() {
     try {
       setLoading(true);
+      const data = await api.getTrendData();
+
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-      const { data, error } = await supabase
-        .from('alerts')
-        .select('published_date, severity')
-        .gte('published_date', thirtyDaysAgo.toISOString())
-        .order('published_date', { ascending: true });
-
-      if (error) throw error;
 
       const grouped: Record<string, TrendData> = {};
 
