@@ -30,11 +30,11 @@ export const api = {
         return res.json();
     },
 
-    async getTrendData() {
+    async getTrendData(): Promise<Alert[]> {
         const res = await fetch(`${API_Base}/alerts?limit=1000`);
         if (!res.ok) throw new Error('Failed to fetch trend data');
-        const data = await res.json();
-        return data;
+        const response = await res.json();
+        return response.data || [];
     },
 
     async getYaraRules(severity?: string, page = 0, limit = 50): Promise<PaginatedResponse<YaraRule>> {
