@@ -1,6 +1,16 @@
 import { Alert, YaraRule, MitreAttackTechnique, AlertMitreMapping, AlertSource } from '../types';
 
-const API_Base = 'http://localhost:3000/api';
+// Use environment variable or valid browser location to determine API base
+const getApiBase = () => {
+    // If VITE_API_BASE_URL is set, use it
+    if (import.meta.env.VITE_API_BASE_URL) {
+        return import.meta.env.VITE_API_BASE_URL;
+    }
+    // Otherwise construct from window location (assuming port 3000 for backend)
+    return `http://${window.location.hostname}:3000/api`;
+};
+
+const API_Base = getApiBase();
 
 export interface PaginatedResponse<T> {
     data: T[];
