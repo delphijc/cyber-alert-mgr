@@ -17,6 +17,20 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(false);
   const [severityFilter, setSeverityFilter] = useState('all');
 
+  const [initialRuleSearch, setInitialRuleSearch] = useState('');
+
+  const handleNavigateToYaraRule = (ruleName: string) => {
+    setInitialRuleSearch(ruleName);
+    setActiveTab('yara');
+  };
+
+  const [targetAlertId, setTargetAlertId] = useState<string | null>(null);
+
+  const handleNavigateToAlert = (alertId: string) => {
+    setTargetAlertId(alertId);
+    setActiveTab('alerts');
+  };
+
   useEffect(() => {
     loadStats();
   }, []);
@@ -172,11 +186,20 @@ export default function Dashboard() {
               <AlertsMonitor
                 severity={severityFilter}
                 onSeverityChange={setSeverityFilter}
+                onNavigateToYaraRule={handleNavigateToYaraRule}
+                targetAlertId={targetAlertId}
+                onClearTargetAlert={() => setTargetAlertId(null)}
               />
             )}
             {activeTab === 'trends' && <TrendChart />}
             {activeTab === 'mitre' && <MitreVisualization severity={severityFilter} />}
-            {activeTab === 'yara' && <YaraRulesViewer severity={severityFilter} />}
+            {activeTab === 'yara' && (
+              <YaraRulesViewer
+                severity={severityFilter}
+                initialSearch={initialRuleSearch}
+                onNavigateToAlert={handleNavigateToAlert}
+              />
+            )}
           </div>
         </div>
       </div>

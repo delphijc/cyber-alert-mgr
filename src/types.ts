@@ -27,6 +27,8 @@ export interface Alert {
   source_name?: string;
   mitre_ids?: string[];
   mitre_tactics?: string[];
+  yara_rule_ids?: string[];
+  yara_rule_names?: string[];
 }
 
 export interface YaraRule {

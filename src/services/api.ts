@@ -24,13 +24,16 @@ export const api = {
         return res.json();
     },
 
-    async getAlerts(severity?: string, page = 0, limit = 50): Promise<PaginatedResponse<Alert>> {
+    async getAlerts(severity?: string, page = 0, limit = 50, id?: string): Promise<PaginatedResponse<Alert>> {
         const params = new URLSearchParams({
             limit: limit.toString(),
             offset: (page * limit).toString(),
         });
         if (severity && severity !== 'all') {
             params.append('severity', severity);
+        }
+        if (id) {
+            params.append('id', id);
         }
 
         const res = await fetch(`${API_Base}/alerts?${params}`);

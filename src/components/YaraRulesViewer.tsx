@@ -1,17 +1,64 @@
 import { useEffect, useState } from 'react';
-import { Download, FileCode, Copy, Check, Lock, Unlock, Trash2, Edit2, RotateCw, X, Save } from 'lucide-react';
+import { Download, FileCode, Copy, Check, Lock, Unlock, Trash2, Edit2, RotateCw, X, Save, AlertTriangle } from 'lucide-react';
 import { api } from '../services/api';
 import { YaraRule } from '../types';
 import Pagination from './common/Pagination';
 
 interface YaraRulesViewerProps {
   severity?: string;
+  initialSearch?: string;
+  onNavigateToAlert?: (alertId: string) => void;
 }
 
-export default function YaraRulesViewer({ severity }: YaraRulesViewerProps) {
+export default function YaraRulesViewer({ severity, initialSearch = '', onNavigateToAlert }: YaraRulesViewerProps) {
   const [rules, setRules] = useState<YaraRule[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(initialSearch);
+
+  // ... (abbreviate unchanged parts in my mind, but have to be careful with replace_file_content so I will use multiple ReplaceFileContent calls or bigger chunk if needed)
+  // Actually, I can just replace the Interface and then another chunk for the button.
+
+  // Chunk 1: Interface and Component definition
+  // Chunk 2: Button rendering
+
+  // Wait, replace_file_content requires Single Contiguous Block.
+  // I will use replace_file_content for the whole component or meaningful chunks.
+  // Let's replace the Interface and Props first.
+  /*
+  interface YaraRulesViewerProps {
+    severity?: string;
+    initialSearch?: string;
+    onNavigateToAlert?: (alertId: string) => void;
+  }
+  
+  export default function YaraRulesViewer({ severity, initialSearch = '', onNavigateToAlert }: YaraRulesViewerProps) {
+  */
+
+  // Then adding the button.
+  /*
+                            <button
+                              onClick={() => downloadRule(rule)}
+                              className="p-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg transition-colors"
+                              title="Download rule"
+                            >
+                              <Download className="h-4 w-4" />
+                            </button>
+                            
+                            {onNavigateToAlert && rule.alert_id && (
+                               <button
+                                 onClick={() => onNavigateToAlert(rule.alert_id)}
+                                 className="p-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors"
+                                 title="View Source Alert"
+                               >
+                                 <AlertTriangle className="h-4 w-4 text-yellow-500" />
+                               </button>
+                            )}
+  */
+
+  // I need to import AlertTriangle too? It was available in other files, let's check imports.
+  // Check existing imports: `import { Download, ... } from 'lucide-react';`
+  // I need access to AlertTriangle.
+
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(50);
@@ -25,6 +72,12 @@ export default function YaraRulesViewer({ severity }: YaraRulesViewerProps) {
   useEffect(() => {
     setPage(0);
   }, [severity]);
+
+  useEffect(() => {
+    if (initialSearch) {
+      setSearchTerm(initialSearch);
+    }
+  }, [initialSearch]);
 
   useEffect(() => {
     loadRules();
@@ -306,6 +359,16 @@ export default function YaraRulesViewer({ severity }: YaraRulesViewerProps) {
                           >
                             <Download className="h-4 w-4" />
                           </button>
+
+                          {onNavigateToAlert && rule.alert_id && (
+                            <button
+                              onClick={() => onNavigateToAlert(rule.alert_id)}
+                              className="p-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors"
+                              title="View Source Alert"
+                            >
+                              <AlertTriangle className="h-4 w-4 text-yellow-500" />
+                            </button>
+                          )}
                         </>
                       )}
                     </div>

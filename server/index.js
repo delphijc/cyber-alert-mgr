@@ -100,27 +100,41 @@ app.get('/api/alert-sources', async (req, res) => {
 // Alerts Routes
 app.get('/api/alerts', async (req, res) => {
     try {
-        const { severity, limit = 50, offset = 0 } = req.query;
+        const { severity, id, limit = 50, offset = 0 } = req.query;
         let query = `
       SELECT a.*, s.name as source_name,
              GROUP_CONCAT(DISTINCT t.technique_id) as mitre_ids,
-             GROUP_CONCAT(DISTINCT t.tactic) as mitre_tactics
+             GROUP_CONCAT(DISTINCT t.tactic) as mitre_tactics,
+             GROUP_CONCAT(DISTINCT r.id) as yara_rule_ids,
+             GROUP_CONCAT(DISTINCT r.rule_name) as yara_rule_names
       FROM alerts a 
       JOIN alert_sources s ON a.source_id = s.id
       LEFT JOIN alert_mitre_mappings amm ON a.id = amm.alert_id
       LEFT JOIN mitre_attack_techniques t ON amm.technique_id = t.id
+      LEFT JOIN yara_rules r ON a.id = r.alert_id
     `;
         let countQuery = `SELECT count(*) as total FROM alerts a`;
 
         const params = [];
         const countParams = [];
+        const conditions = [];
 
         if (severity && severity !== 'all') {
-            const condition = ` WHERE a.severity = ?`;
-            query += condition;
-            countQuery += condition;
+            conditions.push('a.severity = ?');
             params.push(severity);
             countParams.push(severity);
+        }
+
+        if (id) {
+            conditions.push('a.id = ?');
+            params.push(id);
+            countParams.push(id);
+        }
+
+        if (conditions.length > 0) {
+            const whereClause = ' WHERE ' + conditions.join(' AND ');
+            query += whereClause;
+            countQuery += whereClause;
         }
 
         query += ` GROUP BY a.id ORDER BY a.published_date DESC LIMIT ? OFFSET ?`;
@@ -138,7 +152,9 @@ app.get('/api/alerts', async (req, res) => {
             // SQLite stores booleans as 0/1
             is_processed: Boolean(alert.is_processed),
             mitre_ids: alert.mitre_ids ? alert.mitre_ids.split(',') : [],
-            mitre_tactics: alert.mitre_tactics ? alert.mitre_tactics.split(',') : []
+            mitre_tactics: alert.mitre_tactics ? alert.mitre_tactics.split(',') : [],
+            yara_rule_ids: alert.yara_rule_ids ? alert.yara_rule_ids.split(',') : [],
+            yara_rule_names: alert.yara_rule_names ? alert.yara_rule_names.split(',') : []
         }));
 
         res.json({

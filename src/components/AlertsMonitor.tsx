@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, Clock, Shield, ExternalLink, ChevronDown, ChevronUp, Radio } from 'lucide-react';
+import { AlertTriangle, Clock, Shield, ExternalLink, ChevronDown, ChevronUp, Radio, FileCode } from 'lucide-react';
 import { api } from '../services/api';
 import { Alert } from '../types';
 import Pagination from './common/Pagination';
@@ -7,9 +7,18 @@ import Pagination from './common/Pagination';
 interface AlertsMonitorProps {
   severity?: string;
   onSeverityChange: (severity: string) => void;
+  onNavigateToYaraRule?: (ruleName: string) => void;
+  targetAlertId?: string | null;
+  onClearTargetAlert?: () => void;
 }
 
-export default function AlertsMonitor({ severity = 'all', onSeverityChange }: AlertsMonitorProps) {
+export default function AlertsMonitor({
+  severity = 'all',
+  onSeverityChange,
+  onNavigateToYaraRule,
+  targetAlertId,
+  onClearTargetAlert
+}: AlertsMonitorProps) {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
@@ -21,6 +30,14 @@ export default function AlertsMonitor({ severity = 'all', onSeverityChange }: Al
     setPage(0); // Reset to first page when severity changes
   }, [severity]);
 
+  // When targetAlertId changes, reset page and expand that alert if found
+  useEffect(() => {
+    if (targetAlertId) {
+      setPage(0);
+      setExpandedAlert(targetAlertId);
+    }
+  }, [targetAlertId]);
+
   useEffect(() => {
     loadAlerts();
 
@@ -28,14 +45,22 @@ export default function AlertsMonitor({ severity = 'all', onSeverityChange }: Al
     const handleUpdate = () => loadAlerts();
     window.addEventListener('alerts-updated', handleUpdate);
     return () => window.removeEventListener('alerts-updated', handleUpdate);
-  }, [severity, page, pageSize]);
+  }, [severity, page, pageSize, targetAlertId]);
 
   async function loadAlerts() {
     try {
       setLoading(true);
-      const response = await api.getAlerts(severity, page, pageSize);
+      // If targetAlertId is set, we fetch specifically that one (or filter by it) via API params if supported, 
+      // or rely on the fact that we passed it. 
+      // Note: passing undefined/null for id if not targeting.
+      const response = await api.getAlerts(severity, page, pageSize, targetAlertId || undefined);
       setAlerts(response.data || []);
       setTotalAlerts(response.total || 0);
+
+      // If we found the target alert and it's the only one (or in list), force expand it
+      if (targetAlertId && response.data?.find(a => a.id === targetAlertId)) {
+        setExpandedAlert(targetAlertId);
+      }
     } catch (error) {
       console.error('Error loading alerts:', error);
     } finally {
@@ -61,17 +86,26 @@ export default function AlertsMonitor({ severity = 'all', onSeverityChange }: Al
           <h2 className="text-lg font-semibold text-white">Live Monitor</h2>
         </div>
         <div className="flex items-center space-x-4">
-          <select
-            value={severity}
-            onChange={(e) => onSeverityChange(e.target.value)}
-            className="bg-slate-800 border border-slate-700 text-white text-sm rounded-lg focus:ring-cyan-500 focus:border-cyan-500 block p-2.5"
-          >
-            <option value="all">All Severities</option>
-            <option value="critical">Critical</option>
-            <option value="high">High</option>
-            <option value="medium">Medium</option>
-            <option value="low">Low</option>
-          </select>
+          {targetAlertId && onClearTargetAlert ? (
+            <button
+              onClick={onClearTargetAlert}
+              className="text-sm text-cyan-400 hover:text-cyan-300 underline"
+            >
+              Show All Alerts
+            </button>
+          ) : (
+            <select
+              value={severity}
+              onChange={(e) => onSeverityChange(e.target.value)}
+              className="bg-slate-800 border border-slate-700 text-white text-sm rounded-lg focus:ring-cyan-500 focus:border-cyan-500 block p-2.5"
+            >
+              <option value="all">All Severities</option>
+              <option value="critical">Critical</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+          )}
         </div>
       </div>
 
@@ -142,7 +176,21 @@ export default function AlertsMonitor({ severity = 'all', onSeverityChange }: Al
 
               {expandedAlert === alert.id && (
                 <div className="px-4 pb-4 pt-0 border-t border-slate-800/50 bg-slate-900/30">
-                  <div className="mt-4 flex justify-end">
+                  <div className="mt-4 flex justify-end gap-3">
+                    {onNavigateToYaraRule && alert.yara_rule_names && alert.yara_rule_names.length > 0 && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (alert.yara_rule_names && alert.yara_rule_names.length > 0) {
+                            onNavigateToYaraRule(alert.yara_rule_names[0]);
+                          }
+                        }}
+                        className="flex items-center space-x-2 text-purple-400 hover:text-purple-300 text-sm font-medium"
+                      >
+                        <FileCode className="h-4 w-4" />
+                        <span>View YARA Rule</span>
+                      </button>
+                    )}
                     <a
                       href={alert.url}
                       target="_blank"
