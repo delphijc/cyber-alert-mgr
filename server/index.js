@@ -10,6 +10,29 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
+// Job Lock State
+const jobState = {
+    isRunning: false,
+    currentJob: null,
+    startTime: null
+};
+
+const tryAcquireLock = (jobName) => {
+    if (jobState.isRunning) {
+        throw new Error(`Job '${jobState.currentJob}' is currently running (started at ${jobState.startTime})`);
+    }
+    jobState.isRunning = true;
+    jobState.currentJob = jobName;
+    jobState.startTime = new Date().toISOString();
+    return true;
+};
+
+const releaseLock = () => {
+    jobState.isRunning = false;
+    jobState.currentJob = null;
+    jobState.startTime = null;
+};
+
 let db;
 
 // Initialize Database
@@ -209,6 +232,7 @@ app.get('/api/mitre-mappings', async (req, res) => {
 // Trigger Sync Job
 app.post('/api/jobs/sync', async (req, res) => {
     try {
+        tryAcquireLock('sync');
         console.log('Starting sync job...');
         const fetchResults = await fetchAlerts(db);
         const processResults = await processAlerts(db);
@@ -219,8 +243,14 @@ app.post('/api/jobs/sync', async (req, res) => {
             process: processResults
         });
     } catch (error) {
+        if (error.message.includes('currently running')) {
+            console.warn('Sync skipped:', error.message);
+            return res.status(409).json({ error: error.message });
+        }
         console.error('Sync job failed:', error);
         res.status(500).json({ error: error.message });
+    } finally {
+        if (jobState.currentJob === 'sync') releaseLock();
     }
 });
 
@@ -229,17 +259,24 @@ const removeDuplicates = require('./services/deduplication');
 // Trigger Deduplication
 app.post('/api/jobs/deduplicate', async (req, res) => {
     try {
+        tryAcquireLock('deduplicate');
         const stats = await removeDuplicates(db);
         res.json({ status: 'success', stats });
     } catch (error) {
+        if (error.message.includes('currently running')) {
+            return res.status(409).json({ error: error.message });
+        }
         console.error('Deduplication failed:', error);
         res.status(500).json({ error: error.message });
+    } finally {
+        if (jobState.currentJob === 'deduplicate') releaseLock();
     }
 });
 
 // Trigger Reprocess
 app.post('/api/jobs/reprocess', async (req, res) => {
     try {
+        tryAcquireLock('reprocess');
         console.log('Starting reprocessing...');
         // Reset processed status
         await db.run('UPDATE alerts SET is_processed = 0');
@@ -256,7 +293,80 @@ app.post('/api/jobs/reprocess', async (req, res) => {
             deduplication: dedupeStats
         });
     } catch (error) {
+        if (error.message.includes('currently running')) {
+            return res.status(409).json({ error: error.message });
+        }
         console.error('Reprocessing failed:', error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        if (jobState.currentJob === 'reprocess') releaseLock();
+    }
+});
+
+// Update YARA Rule (Edit/Lock)
+app.put('/api/yara-rules/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { rule_content, is_locked } = req.body;
+
+        // Verify rule exists
+        const rule = await db.get('SELECT * FROM yara_rules WHERE id = ?', [id]);
+        if (!rule) return res.status(404).json({ error: 'Rule not found' });
+
+        await db.run(`
+            UPDATE yara_rules 
+            SET rule_content = COALESCE(?, rule_content), 
+                is_locked = COALESCE(?, is_locked),
+                generated_at = ?
+            WHERE id = ?
+        `, [rule_content, is_locked, new Date().toISOString(), id]);
+
+        res.json({ status: 'success' });
+    } catch (error) {
+        console.error('Failed to update rule:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Delete YARA Rule
+app.delete('/api/yara-rules/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const rule = await db.get('SELECT * FROM yara_rules WHERE id = ?', [id]);
+        if (!rule) return res.status(404).json({ error: 'Rule not found' });
+
+        if (rule.is_locked) {
+            return res.status(403).json({ error: 'Cannot delete locked rule' });
+        }
+
+        await db.run('DELETE FROM yara_rules WHERE id = ?', [id]);
+        res.json({ status: 'success' });
+    } catch (error) {
+        console.error('Failed to delete rule:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Reprocess Single Alert
+app.post('/api/alerts/:id/reprocess', async (req, res) => {
+    try {
+        const { id } = req.params;
+        await db.run('UPDATE alerts SET is_processed = 0 WHERE id = ?', [id]);
+
+        // We trigger the full process batch, but since only this one is reset, effectively forces retry.
+        // It skips locked rules, so safe.
+        // Note: global lock check might be good here but since processAlerts doesn't strictly require it 
+        // (it's resilient), we can skip strict locking for single item or check if big job running.
+        // Let's check lock to be safe.
+        if (jobState.isRunning) {
+            return res.status(409).json({ error: `Job '${jobState.currentJob}' is running` });
+        }
+
+        const stats = await processAlerts(db);
+        res.json({ status: 'success', stats });
+    } catch (error) {
+        console.error('Failed to reprocess alert:', error);
         res.status(500).json({ error: error.message });
     }
 });

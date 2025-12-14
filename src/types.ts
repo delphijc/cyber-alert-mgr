@@ -34,8 +34,9 @@ export interface YaraRule {
   alert_id: string;
   rule_name: string;
   rule_content: string;
-  description: string;
-  tags: string[];
+  description?: string;
+  tags?: string[];
+  is_locked?: number;
   generated_at: string;
   created_at: string;
   alerts?: Alert;

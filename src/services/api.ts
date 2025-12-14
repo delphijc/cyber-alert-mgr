@@ -1,4 +1,4 @@
-import { Alert, YaraRule, MitreAttackTechnique, AlertMitreMapping, AlertSource } from '../types';
+import { Alert, YaraRule, AlertSource } from '../types';
 
 // Use environment variable or valid browser location to determine API base
 const getApiBase = () => {
@@ -88,6 +88,31 @@ export const api = {
     async triggerReprocess() {
         const res = await fetch(`${API_Base}/jobs/reprocess`, { method: 'POST' });
         if (!res.ok) throw new Error('Failed to trigger reprocessing');
+        return res.json();
+    },
+
+    async updateYaraRule(id: string, updates: { rule_content?: string, is_locked?: number }) {
+        const res = await fetch(`${API_Base}/yara-rules/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updates)
+        });
+        if (!res.ok) throw new Error('Failed to update rule');
+        return res.json();
+    },
+
+    async deleteYaraRule(id: string) {
+        const res = await fetch(`${API_Base}/yara-rules/${id}`, { method: 'DELETE' });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Failed to delete rule');
+        }
+        return res.json();
+    },
+
+    async reprocessAlert(id: string) {
+        const res = await fetch(`${API_Base}/alerts/${id}/reprocess`, { method: 'POST' });
+        if (!res.ok) throw new Error('Failed to reprocess alert');
         return res.json();
     }
 };

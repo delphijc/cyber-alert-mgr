@@ -14,7 +14,18 @@ async function processAlerts(db) {
 
     for (const alert of unprocessedAlerts) {
         try {
-            // 1. Clean up old artifacts (to prevent duplicates if re-processing)
+            // 1. Check if existing rule is locked
+            const existingRule = await db.get('SELECT is_locked FROM yara_rules WHERE alert_id = ?', [alert.id]);
+
+            if (existingRule && existingRule.is_locked) {
+                console.log(`Skipping YARA generation for alert ${alert.id} (Rule is locked)`);
+                // Still update processed status so we don't loop forever
+                await db.run('UPDATE alerts SET is_processed = 1, updated_at = ? WHERE id = ?', [new Date().toISOString(), alert.id]);
+                results.push({ alert_id: alert.id, status: 'skipped_locked' });
+                continue;
+            }
+
+            // Clean up old artifacts (to prevent duplicates if re-processing)
             await db.run('DELETE FROM yara_rules WHERE alert_id = ?', [alert.id]);
             await db.run('DELETE FROM alert_mitre_mappings WHERE alert_id = ?', [alert.id]);
 

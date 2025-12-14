@@ -89,6 +89,7 @@ async function initializeDatabase() {
       rule_content TEXT NOT NULL,
       description TEXT,
       tags TEXT,
+      is_locked INTEGER DEFAULT 0,
       generated_at TEXT DEFAULT (datetime('now')),
       created_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY (alert_id) REFERENCES alerts(id) ON DELETE CASCADE
@@ -158,6 +159,14 @@ async function initializeDatabase() {
         SET url = 'https://www.ic3.gov/CSA/RSS', source_type = 'rss' 
         WHERE name = 'FBI IC3 Alerts' AND source_type = 'scrape'
     `);
+
+    // Migration: Add is_locked to yara_rules if missing
+    try {
+      await db.run('ALTER TABLE yara_rules ADD COLUMN is_locked INTEGER DEFAULT 0');
+      console.log('Migrated: Added is_locked to yara_rules');
+    } catch (e) {
+      // Ignore error if column already exists
+    }
   }
 
   return db;

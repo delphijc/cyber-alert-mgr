@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Download, FileCode, Copy, Check } from 'lucide-react';
+import { Download, FileCode, Copy, Check, Lock, Unlock, Trash2, Edit2, RotateCw, X, Save } from 'lucide-react';
 import { api } from '../services/api';
 import { YaraRule } from '../types';
 import Pagination from './common/Pagination';
@@ -16,6 +16,11 @@ export default function YaraRulesViewer({ severity }: YaraRulesViewerProps) {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(50);
   const [totalRules, setTotalRules] = useState(0);
+
+  // Edit State
+  const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
+  const [editContent, setEditContent] = useState('');
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   useEffect(() => {
     setPage(0);
@@ -76,6 +81,76 @@ export default function YaraRulesViewer({ severity }: YaraRulesViewerProps) {
     setTimeout(() => setCopiedId(null), 2000);
   }
 
+  /* Management Functions */
+  const startEditing = (rule: YaraRule) => {
+    setEditingRuleId(rule.id);
+    setEditContent(rule.rule_content);
+  };
+
+  const cancelEditing = () => {
+    setEditingRuleId(null);
+    setEditContent('');
+  };
+
+  const saveRule = async (rule: YaraRule) => {
+    try {
+      setActionLoading(rule.id);
+      await api.updateYaraRule(rule.id, { rule_content: editContent });
+      await loadRules();
+      setEditingRuleId(null);
+    } catch (e) {
+      console.error('Failed to save rule:', e);
+      alert('Failed to save rule');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const toggleLock = async (rule: YaraRule) => {
+    try {
+      setActionLoading(rule.id);
+      // Toggle boolean-like integer 0/1 (or boolean if parsed)
+      // Assuming DB returns 0 or 1, and we might treat it as number.
+      // Let's coerce to boolean for toggle logic.
+      const newLockState = rule.is_locked ? 0 : 1;
+      await api.updateYaraRule(rule.id, { is_locked: newLockState });
+      await loadRules();
+    } catch (e) {
+      console.error('Failed to lock/unlock rule:', e);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const deleteRule = async (rule: YaraRule) => {
+    if (!confirm(`Are you sure you want to delete rule "${rule.rule_name}"?`)) return;
+    try {
+      setActionLoading(rule.id);
+      await api.deleteYaraRule(rule.id);
+      await loadRules();
+    } catch (e: any) {
+      console.error('Failed to delete rule:', e);
+      alert(e.message || 'Failed to delete rule');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const reprocessAlert = async (rule: YaraRule) => {
+    if (!rule.alert_id) return;
+    if (!confirm('Reprocess the original alert? This may overwrite changes if rule is not locked.')) return;
+    try {
+      setActionLoading(rule.id);
+      await api.reprocessAlert(rule.alert_id);
+      await loadRules();
+    } catch (e) {
+      console.error('Failed to reprocess alert:', e);
+      alert('Failed to reprocess alert');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
@@ -108,76 +183,156 @@ export default function YaraRulesViewer({ severity }: YaraRulesViewerProps) {
         </div>
       ) : (
         <div className="space-y-4">
-          {filteredRules.map((rule) => (
-            <div
-              key={rule.id}
-              className="bg-slate-900/50 border border-slate-700 rounded-lg overflow-hidden hover:border-slate-600 transition-colors"
-            >
-              <div className="p-6">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex-1">
-                    <h3 className="text-lg font-semibold text-white mb-2">{rule.rule_name}</h3>
-                    <p className="text-slate-400 text-sm mb-3">{rule.description}</p>
-                    <div className="flex flex-wrap gap-2">
-                      {rule.tags?.map((tag) => (
-                        <span
-                          key={tag}
-                          className="px-2 py-1 text-xs font-medium bg-slate-700 text-slate-300 rounded"
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
+          {filteredRules.map((rule) => {
+            const isEditing = editingRuleId === rule.id;
+            const isLocked = !!rule.is_locked;
+            const isLoading = actionLoading === rule.id;
 
-                    {((rule.mitre_ids?.length || 0) > 0 || (rule.mitre_tactics?.length || 0) > 0) && (
-                      <div className="flex flex-wrap gap-2 mt-3">
-                        {rule.mitre_tactics?.slice(0, 3).map(tactic => (
-                          <span key={tactic} className="px-2 py-0.5 text-[10px] font-medium bg-purple-500/20 text-purple-300 border border-purple-500/30 rounded">
-                            {tactic}
-                          </span>
-                        ))}
-                        {rule.mitre_ids?.slice(0, 5).map(id => (
-                          <span key={id} className="px-2 py-0.5 text-[10px] font-medium bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded font-mono">
-                            {id}
+            return (
+              <div
+                key={rule.id}
+                className={`bg-slate-900/50 border rounded-lg overflow-hidden transition-colors ${isLocked ? 'border-orange-500/50' : 'border-slate-700 hover:border-slate-600'
+                  }`}
+              >
+                <div className="p-6">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <h3 className="text-lg font-semibold text-white">{rule.rule_name}</h3>
+                        {isLocked && <Lock className="h-4 w-4 text-orange-500" />}
+                      </div>
+                      <p className="text-slate-400 text-sm mb-3">{rule.description}</p>
+                      <div className="flex flex-wrap gap-2">
+                        {rule.tags?.map((tag) => (
+                          <span
+                            key={tag}
+                            className="px-2 py-1 text-xs font-medium bg-slate-700 text-slate-300 rounded"
+                          >
+                            {tag}
                           </span>
                         ))}
                       </div>
+
+                      {((rule.mitre_ids?.length || 0) > 0 || (rule.mitre_tactics?.length || 0) > 0) && (
+                        <div className="flex flex-wrap gap-2 mt-3">
+                          {rule.mitre_tactics?.slice(0, 3).map(tactic => (
+                            <span key={tactic} className="px-2 py-0.5 text-[10px] font-medium bg-purple-500/20 text-purple-300 border border-purple-500/30 rounded">
+                              {tactic}
+                            </span>
+                          ))}
+                          {rule.mitre_ids?.slice(0, 5).map(id => (
+                            <span key={id} className="px-2 py-0.5 text-[10px] font-medium bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded font-mono">
+                              {id}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center space-x-2 ml-4">
+                      {/* Action Buttons */}
+                      {isEditing ? (
+                        <>
+                          <button
+                            onClick={() => saveRule(rule)}
+                            disabled={isLoading}
+                            className="p-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+                            title="Save Changes"
+                          >
+                            <Save className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={cancelEditing}
+                            disabled={isLoading}
+                            className="p-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors"
+                            title="Cancel Edit"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => toggleLock(rule)}
+                            className={`p-2 rounded-lg transition-colors ${isLocked ? 'bg-orange-500/20 text-orange-500 hover:bg-orange-500/30' : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
+                              }`} // Fixed className formatting
+                            title={isLocked ? "Unlock Rule" : "Lock Rule"}
+                          >
+                            {isLocked ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
+                          </button>
+
+                          <button
+                            onClick={() => startEditing(rule)}
+                            className="p-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors"
+                            title="Edit Rule"
+                          >
+                            <Edit2 className="h-4 w-4" />
+                          </button>
+
+                          <button
+                            onClick={() => reprocessAlert(rule)}
+                            className="p-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors"
+                            title="Reprocess Source Alert"
+                          >
+                            <RotateCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+                          </button>
+
+                          <button
+                            onClick={() => deleteRule(rule)}
+                            disabled={isLocked}
+                            className={`p-2 rounded-lg transition-colors ${isLocked ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-red-900/50 hover:bg-red-800/50 text-red-400'
+                              }`}
+                            title="Delete Rule"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+
+                          <div className="w-px h-6 bg-slate-700 mx-1"></div>
+
+                          <button
+                            onClick={() => copyToClipboard(rule)}
+                            className="p-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors"
+                            title="Copy to clipboard"
+                          >
+                            {copiedId === rule.id ? (
+                              <Check className="h-4 w-4 text-green-400" />
+                            ) : (
+                              <Copy className="h-4 w-4" />
+                            )}
+                          </button>
+                          <button
+                            onClick={() => downloadRule(rule)}
+                            className="p-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg transition-colors"
+                            title="Download rule"
+                          >
+                            <Download className="h-4 w-4" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-950 border border-slate-700 rounded-lg p-4 overflow-x-auto">
+                    {isEditing ? (
+                      <textarea
+                        value={editContent}
+                        onChange={(e) => setEditContent(e.target.value)}
+                        className="w-full h-64 bg-transparent text-sm text-slate-300 font-mono focus:outline-none resize-none"
+                      />
+                    ) : (
+                      <pre className="text-sm text-slate-300 font-mono whitespace-pre">
+                        {rule.rule_content}
+                      </pre>
                     )}
                   </div>
-                  <div className="flex items-center space-x-2 ml-4">
-                    <button
-                      onClick={() => copyToClipboard(rule)}
-                      className="p-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors"
-                      title="Copy to clipboard"
-                    >
-                      {copiedId === rule.id ? (
-                        <Check className="h-4 w-4 text-green-400" />
-                      ) : (
-                        <Copy className="h-4 w-4" />
-                      )}
-                    </button>
-                    <button
-                      onClick={() => downloadRule(rule)}
-                      className="p-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg transition-colors"
-                      title="Download rule"
-                    >
-                      <Download className="h-4 w-4" />
-                    </button>
-                  </div>
                 </div>
 
-                <div className="bg-slate-950 border border-slate-700 rounded-lg p-4 overflow-x-auto">
-                  <pre className="text-sm text-slate-300 font-mono whitespace-pre">
-                    {rule.rule_content}
-                  </pre>
+                <div className="px-6 py-3 bg-slate-800/50 border-t border-slate-700 flex justify-between items-center text-xs text-slate-400">
+                  <span>Generated: {new Date(rule.generated_at).toLocaleString()}</span>
+                  {isLocked && <span className="text-orange-500 flex items-center gap-1"><Lock className="h-3 w-3" /> Locked from automatic updates</span>}
                 </div>
               </div>
-
-              <div className="px-6 py-3 bg-slate-800/50 border-t border-slate-700 text-xs text-slate-400">
-                Generated: {new Date(rule.generated_at).toLocaleString()}
-              </div>
-            </div>
-          ))}
+            );
+          })}
 
           <Pagination
             currentPage={page}
