@@ -77,5 +77,17 @@ export const api = {
         const res = await fetch(`${API_Base}/jobs/sync`, { method: 'POST' });
         if (!res.ok) throw new Error('Failed to trigger sync');
         return res.json();
+    },
+
+    async triggerDeduplicate() {
+        const res = await fetch(`${API_Base}/jobs/deduplicate`, { method: 'POST' });
+        if (!res.ok) throw new Error('Failed to trigger deduplication');
+        return res.json();
+    },
+
+    async triggerReprocess() {
+        const res = await fetch(`${API_Base}/jobs/reprocess`, { method: 'POST' });
+        if (!res.ok) throw new Error('Failed to trigger reprocessing');
+        return res.json();
     }
 };

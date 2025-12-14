@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Shield, AlertTriangle, TrendingUp, FileCode, Target, RefreshCw } from 'lucide-react';
+import { Shield, AlertTriangle, TrendingUp, FileCode, Target, RefreshCw, Trash2, RotateCw } from 'lucide-react';
 import { api } from '../services/api';
 import AlertsMonitor from './AlertsMonitor';
 import TrendChart from './TrendChart';
@@ -70,6 +70,49 @@ export default function Dashboard() {
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
               <span>{loading ? 'Updating...' : 'Update Alerts'}</span>
             </button>
+            <div className="flex space-x-2 border-l border-slate-700 pl-4 ml-4">
+              <button
+                onClick={async () => {
+                  setLoading(true);
+                  try {
+                    await api.triggerDeduplicate();
+                    await loadStats();
+                    window.dispatchEvent(new Event('alerts-updated'));
+                  } catch (e) {
+                    console.error(e);
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+                disabled={loading}
+                className="flex items-center space-x-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors disabled:opacity-50"
+                title="Remove Duplicates"
+              >
+                <Trash2 className="h-4 w-4" />
+                <span className="hidden sm:inline">Deduplicate</span>
+              </button>
+              <button
+                onClick={async () => {
+                  if (!confirm('This will reset all processed status and regenerate rules. Continue?')) return;
+                  setLoading(true);
+                  try {
+                    await api.triggerReprocess();
+                    await loadStats();
+                    window.dispatchEvent(new Event('alerts-updated'));
+                  } catch (e) {
+                    console.error(e);
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+                disabled={loading}
+                className="flex items-center space-x-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors disabled:opacity-50"
+                title="Reprocess All Alerts"
+              >
+                <RotateCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                <span className="hidden sm:inline">Reprocess</span>
+              </button>
+            </div>
           </div>
         </div>
       </header>

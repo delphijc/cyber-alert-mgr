@@ -223,3 +223,40 @@ app.post('/api/jobs/sync', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+const removeDuplicates = require('./services/deduplication');
+
+// Trigger Deduplication
+app.post('/api/jobs/deduplicate', async (req, res) => {
+    try {
+        const stats = await removeDuplicates(db);
+        res.json({ status: 'success', stats });
+    } catch (error) {
+        console.error('Deduplication failed:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Trigger Reprocess
+app.post('/api/jobs/reprocess', async (req, res) => {
+    try {
+        console.log('Starting reprocessing...');
+        // Reset processed status
+        await db.run('UPDATE alerts SET is_processed = 0');
+
+        // Process alerts (this will regenerate rules/mappings)
+        const processResults = await processAlerts(db);
+
+        // Clean up any potential duplicates or orphans (e.g. if logic created extras or prior state was bad)
+        const dedupeStats = await removeDuplicates(db);
+
+        res.json({
+            status: 'success',
+            process: processResults,
+            deduplication: dedupeStats
+        });
+    } catch (error) {
+        console.error('Reprocessing failed:', error);
+        res.status(500).json({ error: error.message });
+    }
+});

@@ -94,6 +94,73 @@ async function processAlerts(db) {
     return results;
 }
 
+const ATTACK_SIGNATURES = {
+    'sql_injection': {
+        meta: { description: "Detects SQL Injection patterns" },
+        strings: [
+            '$sqli1 = "UNION SELECT" nocase',
+            '$sqli2 = "OR 1=1" nocase',
+            '$sqli3 = "information_schema" nocase',
+            '$sqli4 = "xp_cmdshell" nocase',
+            '$sqli5 = "--" wide ascii',
+            '$sqli6 = "; DROP TABLE" nocase'
+        ]
+    },
+    'xss': {
+        meta: { description: "Detects Cross-Site Scripting patterns" },
+        strings: [
+            '$xss1 = "<script>" nocase',
+            '$xss2 = "javascript:" nocase',
+            '$xss3 = "onerror=" nocase',
+            '$xss4 = "onload=" nocase',
+            '$xss5 = "document.cookie" nocase'
+        ]
+    },
+    'path_traversal': {
+        meta: { description: "Detects Path Traversal patterns" },
+        strings: [
+            '$pt1 = "../" ascii',
+            '$pt2 = "..%2f" nocase',
+            '$pt3 = "/etc/passwd" nocase',
+            '$pt4 = "C:\\\\Windows\\\\System32" nocase'
+        ]
+    },
+    'command_injection': {
+        meta: { description: "Detects Command Injection patterns" },
+        strings: [
+            '$cmd1 = "/bin/sh" nocase',
+            '$cmd2 = "/bin/bash" nocase',
+            '$cmd3 = "cmd.exe" nocase',
+            '$cmd4 = "powershell" nocase',
+            '$cmd5 = "&&" ascii',
+            '$cmd6 = "|" ascii'
+        ]
+    },
+    'rce': {
+        meta: { description: "Detects Remote Code Execution patterns" },
+        strings: [
+            '$rce1 = "eval(" nocase',
+            '$rce2 = "base64_decode" nocase',
+            '$rce3 = "shell_exec" nocase',
+            '$rce4 = "system(" nocase'
+        ]
+    }
+};
+
+function detectAttackType(text) {
+    const lowerText = text.toLowerCase();
+
+    if (lowerText.includes('sql') || lowerText.includes('injection') || lowerText.includes('database')) {
+        if (lowerText.includes('sql')) return 'sql_injection';
+    }
+    if (lowerText.includes('xss') || lowerText.includes('cross-site') || lowerText.includes('scripting')) return 'xss';
+    if (lowerText.includes('traversal') || lowerText.includes('directory') || lowerText.includes('../')) return 'path_traversal';
+    if (lowerText.includes('command') && (lowerText.includes('injection') || lowerText.includes('execution'))) return 'command_injection';
+    if (lowerText.includes('rce') || lowerText.includes('remote code')) return 'rce';
+
+    return null;
+}
+
 function generateYaraRule(alert) {
     const sanitizedTitle = alert.title.replace(/[^a-zA-Z0-9_]/g, '_');
     const ruleName = `alert_${sanitizedTitle}_${alert.external_id.replace(/[^a-zA-Z0-9_]/g, '_')}`;
@@ -104,30 +171,53 @@ function generateYaraRule(alert) {
 
     const description = alert.description || alert.title;
     const indicators = extractIndicators(description);
+    const attackType = detectAttackType(description + ' ' + alert.title);
 
-    let strings = '';
-    let condition = 'any of them';
+    if (attackType) tags.push(attackType);
 
+    const stringDefinitions = [];
+    const conditions = [];
+
+    // 1. Specific Indicators (Highest Priority)
     if (indicators.hashes.length > 0) {
         indicators.hashes.forEach((hash, idx) => {
-            strings += `        $hash${idx} = "${hash}"\n`;
+            stringDefinitions.push(`        $hash${idx} = "${hash}"`);
         });
+        conditions.push(`any of ($hash*)`);
     }
 
     if (indicators.ips.length > 0) {
         indicators.ips.forEach((ip, idx) => {
-            strings += `        $ip${idx} = "${ip}"\n`;
+            stringDefinitions.push(`        $ip${idx} = "${ip}"`);
         });
+        conditions.push(`any of ($ip*)`);
     }
 
     if (indicators.domains.length > 0) {
         indicators.domains.forEach((domain, idx) => {
-            strings += `        $domain${idx} = "${domain}"\n`;
+            stringDefinitions.push(`        $domain${idx} = "${domain}"`);
         });
+        conditions.push(`any of ($domain*)`);
     }
 
-    if (!strings) {
-        strings = `        $default = "${alert.external_id}" nocase\n`;
+    // 2. Attack Signatures (Secondary)
+    if (attackType && ATTACK_SIGNATURES[attackType]) {
+        const sig = ATTACK_SIGNATURES[attackType];
+        stringDefinitions.push(...sig.strings.map(s => '        ' + s));
+
+        // Extract variable names from definitions like '$xss1 = ...'
+        const vars = sig.strings.map(s => s.trim().split(' ')[0]); // ['$xss1', '$xss2'...]
+        // We want 'any of ($xss*)' but since we might mix types, let's just match any of the vars
+        // Actually, YARA supports `any of ($prefix*)`. Let's assume our prefixes are consistent.
+        // Signatures use specific prefixes like $sqli, $xss.
+        const prefix = vars[0].replace(/[0-9]+$/, '*'); // $xss1 -> $xss*
+        conditions.push(`any of (${prefix})`);
+    }
+
+    // 3. Fallback
+    if (stringDefinitions.length === 0) {
+        stringDefinitions.push(`        $generic = "${alert.external_id}" nocase`);
+        conditions.push(`$generic`);
     }
 
     const cleanDesc = description.substring(0, 200).replace(/"/g, '\\"').replace(/\n/g, ' ');
@@ -140,10 +230,11 @@ function generateYaraRule(alert) {
         source = "${cleanUrl}"
         alert_id = "${alert.external_id}"
         generated = "${new Date().toISOString()}"
+        attack_type = "${attackType || 'unknown'}"
     strings:
-${strings}
+${stringDefinitions.join('\n')}
     condition:
-        ${condition}
+        ${conditions.join(' or ')}
 }`;
 
     return {
@@ -234,3 +325,4 @@ function mapToMitre(alert) {
 }
 
 module.exports = processAlerts;
+
